@@ -7,9 +7,12 @@
     "test": "bun run --filter @inferwallet/sdk --filter @inferwallet/infer-proxy test",
     "build": "bun run --filter '*' build",
     "dev:proxy": "bun run --filter @inferwallet/infer-proxy dev",
-    "dev:companion": "bun run --filter @inferwallet/companion dev"
+    "dev:companion": "bun run --filter @inferwallet/companion dev",
+    "issue:szx": "bun run scripts/issue-szx-testnet.ts",
+    "seed:sdex": "bun run scripts/seed-sdex-book.ts"
   },
   "devDependencies": {
+    "@stellar/stellar-sdk": "^16.2.0",
     "typescript": "^5.8.2"
   }
 }

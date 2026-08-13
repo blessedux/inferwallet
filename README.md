@@ -14,6 +14,17 @@ Domain language (SZX, InferWallet, Infer Proxy, Companion, Treasury Absorb, Pass
 
 No Soroban `/contracts` package in V1 — SZX is a classic Stellar asset.
 
+## Testnet SZX
+
+Issuance + SDEX seed runbook: [docs/testnet-szx-runbook.md](./docs/testnet-szx-runbook.md). Public ids: [docs/testnet-assets.json](./docs/testnet-assets.json).
+
+```bash
+bun run issue:szx   # once — writes .secrets/ (vault immediately)
+bun run seed:sdex   # 15M SZX asks @ $0.01 USDC
+# After you fund distributor with ~150k classic testnet USDC:
+bun run seed:sdex -- --with-bids
+```
+
 ## Develop
 
 ```bash

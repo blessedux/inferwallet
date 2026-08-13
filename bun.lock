@@ -5,6 +5,7 @@
     "": {
       "name": "inferwallet",
       "devDependencies": {
+        "@stellar/stellar-sdk": "^16.2.0",
         "typescript": "^5.8.2",
       },
     },

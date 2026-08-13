@@ -1,0 +1,26 @@
+{
+  "network": "testnet",
+  "horizonUrl": "https://horizon-testnet.stellar.org",
+  "networkPassphrase": "Test SDF Network ; September 2015",
+  "asset": {
+    "code": "SZX",
+    "issuer": "GAUR24CEIVAPOLAVTHYEKAI5VVYAVOHWZ3RJZOTVVFQSJXNAUFXJ4ZQ5"
+  },
+  "distributor": "GCGN3UKABKIAUCSOM3DHMSNZQVZ4DTF5LFZASDKLQAOSGJHKY4DPI7KQ",
+  "sink": "GCRKN24XQI46JJKGGZLREWQFQGGFV4QNDZG7Q7ZWP4EVV4TRVDOX5LGA",
+  "quoteAsset": {
+    "code": "USDC",
+    "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+  },
+  "totalSupply": "100000000000",
+  "targetPriceUsdcPerSzx": "0.01",
+  "poolUsdcTarget": "150000",
+  "poolSzxInventory": "15000000",
+  "issuerLocked": false,
+  "stellarExpertAsset": "https://stellar.expert/explorer/testnet/asset/SZX-GAUR24CEIVAPOLAVTHYEKAI5VVYAVOHWZ3RJZOTVVFQSJXNAUFXJ4ZQ5",
+  "notes": [
+    "Secrets live in vault only — never commit .secrets/",
+    "Joaquin places 150k classic testnet USDC to complete the first pool (bids).",
+    "Run: bun run seed:sdex  then  bun run seed:sdex -- --with-bids"
+  ]
+}
