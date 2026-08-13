@@ -5,6 +5,7 @@ import {
   type StreamBackend,
   type TierModelMap,
 } from "./backend.js";
+import { PrepayLedger } from "./prepay.js";
 import {
   createAcceptAllVerifier,
   createHorizonVerifier,
@@ -36,6 +37,7 @@ export interface SzxProxyConfig {
 
 export interface ProxyDeps {
   store?: RequestStore;
+  prepay?: PrepayLedger;
   backend?: StreamBackend;
   verifier?: SettlementVerifier;
   config: SzxProxyConfig;
@@ -90,6 +92,7 @@ function json(
 
 export function createProxyHandler(deps: ProxyDeps) {
   const store = deps.store ?? new RequestStore();
+  const prepay = deps.prepay ?? new PrepayLedger();
   const config = deps.config;
   const backend =
     deps.backend ??
@@ -133,6 +136,78 @@ export function createProxyHandler(deps: ProxyDeps) {
         origin,
         config.companionOrigin,
       );
+    }
+
+    if (url.pathname === "/v1/prepay" && req.method === "GET") {
+      return json(
+        { prepay: prepay.get() },
+        200,
+        origin,
+        config.companionOrigin,
+      );
+    }
+
+    if (url.pathname === "/v1/prepay" && req.method === "POST") {
+      let body: {
+        transactionHash: string;
+        usd: number;
+        szxAmount: string;
+        publicKey: string;
+        /** Request Binding id used in the Freighter memo (`prepay:<uuid>`). */
+        requestId?: string;
+      };
+      try {
+        body = (await req.json()) as typeof body;
+      } catch {
+        return json(
+          { error: { message: "invalid JSON", type: "invalid_request_error" } },
+          400,
+          origin,
+          config.companionOrigin,
+        );
+      }
+      if (!body.transactionHash || !(body.usd > 0) || !body.szxAmount) {
+        return json(
+          {
+            error: {
+              message: "transactionHash, usd, szxAmount required",
+              type: "invalid_request_error",
+            },
+          },
+          400,
+          origin,
+          config.companionOrigin,
+        );
+      }
+      if (config.szx && !config.skipChainVerify) {
+        const bindingId = body.requestId ?? `prepay:${body.transactionHash.slice(0, 16)}`;
+        const verified = await verifier(body.transactionHash, {
+          requestId: bindingId,
+          sink: config.szx.sink,
+          asset: { code: config.szx.code, issuer: config.szx.issuer },
+          minSzxAmount: body.szxAmount,
+        });
+        if (!verified.ok) {
+          return json(
+            {
+              error: {
+                message: `prepay settlement rejected: ${verified.reason}`,
+                type: "settlement_error",
+              },
+            },
+            402,
+            origin,
+            config.companionOrigin,
+          );
+        }
+      }
+      const state = prepay.fund({
+        usd: body.usd,
+        szx: body.szxAmount,
+        txHash: body.transactionHash,
+        publicKey: body.publicKey ?? "",
+      });
+      return json({ ok: true, prepay: state }, 200, origin, config.companionOrigin);
     }
 
     if (url.pathname === "/v1/pending" && req.method === "GET") {
@@ -314,6 +389,23 @@ export function createProxyHandler(deps: ProxyDeps) {
         payload.model,
         req.headers.get("X-Infer-Tier"),
       );
+      const feel = tierConfig(tier).usdFeel;
+
+      // Prepay debit — no Freighter popup while balance remains
+      if (prepay.tryDebit(feel)) {
+        const requestId = crypto.randomUUID();
+        return fulfill(
+          store,
+          backend,
+          config,
+          requestId,
+          tier,
+          payload,
+          stream,
+          origin,
+        );
+      }
+
       const pending = store.create(payload, tier);
 
       try {
