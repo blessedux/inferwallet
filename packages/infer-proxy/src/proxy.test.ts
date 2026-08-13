@@ -7,6 +7,7 @@ const baseConfig = {
   port: 8787,
   companionOrigin: "http://localhost:5173",
   skipChainVerify: true,
+  settlementTimeoutMs: 200,
 };
 
 async function postCompletions(
@@ -28,7 +29,7 @@ async function postCompletions(
 }
 
 describe("infer proxy settlement gate", () => {
-  test("unsettled request returns 402 and does not call backend", async () => {
+  test("timeout without settlement returns 402 and does not call backend", async () => {
     const backend = createTrackingBackend();
     const store = new RequestStore();
     const handler = createProxyHandler({
@@ -48,38 +49,34 @@ describe("infer proxy settlement gate", () => {
       error: { request_id: string; code: string };
     };
     expect(json.error.code).toBe("settlement_required");
-    expect(store.listPending()).toHaveLength(1);
     expect(res.headers.get("X-Infer-Request-Id")).toBe(json.error.request_id);
   });
 
-  test("Companion pending + settle then retry invokes stub backend", async () => {
+  test("Companion settle during wait returns completion", async () => {
     const backend = createTrackingBackend();
     const store = new RequestStore();
     const handler = createProxyHandler({
       store,
       backend,
-      config: baseConfig,
+      config: { ...baseConfig, settlementTimeoutMs: 5_000 },
     });
 
-    const first = await postCompletions(handler, {
+    const pendingPromise = postCompletions(handler, {
       model: "inferwallet/cheap",
       messages: [{ role: "user", content: "pay me" }],
     });
-    const firstBody = (await first.json()) as {
-      error: { request_id: string };
-    };
-    const requestId = firstBody.error.request_id;
 
-    const pendingRes = await handler(
-      new Request("http://localhost/v1/pending", {
-        headers: { Origin: "http://localhost:5173" },
-      }),
-    );
-    expect(pendingRes.status).toBe(200);
-    const pendingBody = (await pendingRes.json()) as {
-      pending: Array<{ id: string }>;
-    };
-    expect(pendingBody.pending.some((p) => p.id === requestId)).toBe(true);
+    // Wait until pending appears
+    let requestId = "";
+    for (let i = 0; i < 50; i++) {
+      const list = store.listPending();
+      if (list[0]) {
+        requestId = list[0].id;
+        break;
+      }
+      await Bun.sleep(20);
+    }
+    expect(requestId).toBeTruthy();
 
     const settleRes = await handler(
       new Request("http://localhost/v1/settle", {
@@ -94,17 +91,10 @@ describe("infer proxy settlement gate", () => {
     );
     expect(settleRes.status).toBe(200);
 
-    const second = await postCompletions(
-      handler,
-      {
-        model: "inferwallet/cheap",
-        messages: [{ role: "user", content: "ignored on retry path" }],
-      },
-      { "X-Infer-Request-Id": requestId },
-    );
-    expect(second.status).toBe(200);
+    const completionRes = await pendingPromise;
+    expect(completionRes.status).toBe(200);
     expect(backend.calls).toBe(1);
-    const completion = (await second.json()) as {
+    const completion = (await completionRes.json()) as {
       choices: Array<{ message: { content: string } }>;
     };
     expect(completion.choices[0]?.message.content).toContain(requestId);
