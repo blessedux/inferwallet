@@ -16,6 +16,8 @@ export interface SzxProxyConfig {
   companionOrigin: string;
   /** When true, skip Horizon and accept Companion-reported settlements. */
   skipChainVerify: boolean;
+  /** How long completions wait for Companion Pay-to-Sink (ms). */
+  settlementTimeoutMs: number;
   szx?: {
     code: string;
     issuer: string;
@@ -264,29 +266,47 @@ export function createProxyHandler(deps: ProxyDeps) {
         req.headers.get("X-Infer-Tier"),
       );
       const pending = store.create(payload, tier);
-      return json(
-        {
-          error: {
-            message: "Payment required — complete Pay-to-Sink in Companion",
-            type: "payment_required",
-            code: "settlement_required",
-            request_id: pending.id,
-            companion: {
-              pending_url: `http://127.0.0.1:${config.port}/v1/pending`,
-              settle_url: `http://127.0.0.1:${config.port}/v1/settle`,
-              tier: pending.tier,
-              usd_feel: pending.usdFeel,
+
+      // Hold the Cursor request open until Companion settles (or timeout).
+      try {
+        const settled = await store.waitUntilSettled(
+          pending.id,
+          config.settlementTimeoutMs,
+        );
+        store.takeSettled(settled.id);
+        const model = tierConfig(settled.tier).model;
+        const completion = await backend.complete(settled.payload, {
+          requestId: settled.id,
+          model,
+        });
+        return json(completion, 200, origin, config.companionOrigin, {
+          "X-Infer-Request-Id": settled.id,
+        });
+      } catch {
+        return json(
+          {
+            error: {
+              message: "Payment required — complete Pay-to-Sink in Companion",
+              type: "payment_required",
+              code: "settlement_required",
+              request_id: pending.id,
+              companion: {
+                pending_url: `http://127.0.0.1:${config.port}/v1/pending`,
+                settle_url: `http://127.0.0.1:${config.port}/v1/settle`,
+                tier: pending.tier,
+                usd_feel: pending.usdFeel,
+              },
             },
           },
-        },
-        402,
-        origin,
-        config.companionOrigin,
-        {
-          "X-Infer-Request-Id": pending.id,
-          "X-Infer-Payment-Required": "true",
-        },
-      );
+          402,
+          origin,
+          config.companionOrigin,
+          {
+            "X-Infer-Request-Id": pending.id,
+            "X-Infer-Payment-Required": "true",
+          },
+        );
+      }
     }
 
     return json(
@@ -316,6 +336,7 @@ export function loadConfigFromEnv(
     companionOrigin: env.COMPANION_ORIGIN ?? "http://localhost:5173",
     skipChainVerify:
       env.SKIP_CHAIN_VERIFY === "1" || env.SKIP_CHAIN_VERIFY === "true",
+    settlementTimeoutMs: Number(env.SETTLEMENT_TIMEOUT_MS ?? 120_000),
     szx:
       env.SZX_ISSUER && env.SZX_SINK
         ? {

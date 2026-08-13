@@ -22,8 +22,15 @@ export function parseTier(value: string | null | undefined): TierId {
   return "balanced";
 }
 
+type Waiter = {
+  resolve: (req: PendingRequest) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
 export class RequestStore {
   private readonly byId = new Map<string, PendingRequest>();
+  private readonly waiters = new Map<string, Waiter>();
   private readonly ttlMs: number;
 
   constructor(ttlMs = 5 * 60_000) {
@@ -67,7 +74,31 @@ export class RequestStore {
     req.status = "settled";
     req.settlementTxHash = txHash;
     if (szxAmount) req.szxAmount = szxAmount;
+    const waiter = this.waiters.get(id);
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      this.waiters.delete(id);
+      waiter.resolve(req);
+    }
     return req;
+  }
+
+  /**
+   * Wait until a pending request is settled (or timeout).
+   * Used so Cursor's single HTTP request can continue after Companion pays.
+   */
+  waitUntilSettled(id: string, timeoutMs: number): Promise<PendingRequest> {
+    const existing = this.byId.get(id);
+    if (existing?.status === "settled") {
+      return Promise.resolve(existing);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters.delete(id);
+        reject(new Error("settlement timeout"));
+      }, timeoutMs);
+      this.waiters.set(id, { resolve, reject, timer });
+    });
   }
 
   takeSettled(id: string): PendingRequest | undefined {
@@ -82,6 +113,12 @@ export class RequestStore {
     for (const [id, req] of this.byId) {
       if (req.status === "awaiting_payment" && now - req.createdAt > this.ttlMs) {
         req.status = "expired" satisfies PendingRequestStatus;
+        const waiter = this.waiters.get(id);
+        if (waiter) {
+          clearTimeout(waiter.timer);
+          this.waiters.delete(id);
+          waiter.reject(new Error("request expired"));
+        }
         this.byId.delete(id);
       }
     }
