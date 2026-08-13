@@ -34,4 +34,6 @@ bun run dev:proxy      # http://localhost:8787
 bun run dev:companion  # http://localhost:5173
 ```
 
+Full walkthrough: [docs/setup.md](./docs/setup.md).
+
 Product tracking: Exponential **SZX** (`szx`) under Sozu Capital.
