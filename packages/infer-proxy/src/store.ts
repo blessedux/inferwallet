@@ -103,9 +103,21 @@ export class RequestStore {
 
   takeSettled(id: string): PendingRequest | undefined {
     const req = this.byId.get(id);
-    if (!req || req.status !== "settled") return undefined;
-    this.byId.delete(id);
+    if (!req || (req.status !== "settled" && req.status !== "settled_retryable")) {
+      return undefined;
+    }
+    // Leave in map until consume() so provider retries stay free
     return req;
+  }
+
+  markRetryable(id: string) {
+    const req = this.byId.get(id);
+    if (!req) return;
+    req.status = "settled_retryable";
+  }
+
+  consume(id: string) {
+    this.byId.delete(id);
   }
 
   private gc() {

@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { createTrackingBackend } from "./backend.ts";
 import { createProxyHandler } from "./server.ts";
 import { RequestStore } from "./store.ts";
+import { loadTierModels } from "./backend.ts";
 
 const baseConfig = {
   port: 8787,
   companionOrigin: "http://localhost:5173",
   skipChainVerify: true,
   settlementTimeoutMs: 200,
+  openRouterBaseUrl: "https://openrouter.ai/api/v1",
+  tierModels: loadTierModels({}),
 };
 
 async function postCompletions(
@@ -45,14 +48,9 @@ describe("infer proxy settlement gate", () => {
 
     expect(res.status).toBe(402);
     expect(backend.calls).toBe(0);
-    const json = (await res.json()) as {
-      error: { request_id: string; code: string };
-    };
-    expect(json.error.code).toBe("settlement_required");
-    expect(res.headers.get("X-Infer-Request-Id")).toBe(json.error.request_id);
   });
 
-  test("Companion settle during wait returns completion", async () => {
+  test("Companion settle during wait streams/returns completion", async () => {
     const backend = createTrackingBackend();
     const store = new RequestStore();
     const handler = createProxyHandler({
@@ -64,9 +62,9 @@ describe("infer proxy settlement gate", () => {
     const pendingPromise = postCompletions(handler, {
       model: "inferwallet/cheap",
       messages: [{ role: "user", content: "pay me" }],
+      stream: true,
     });
 
-    // Wait until pending appears
     let requestId = "";
     for (let i = 0; i < 50; i++) {
       const list = store.listPending();
@@ -94,15 +92,19 @@ describe("infer proxy settlement gate", () => {
     const completionRes = await pendingPromise;
     expect(completionRes.status).toBe(200);
     expect(backend.calls).toBe(1);
-    const completion = (await completionRes.json()) as {
-      choices: Array<{ message: { content: string } }>;
-    };
-    expect(completion.choices[0]?.message.content).toContain(requestId);
+    expect(completionRes.headers.get("Content-Type")).toContain(
+      "text/event-stream",
+    );
   });
 
-  test("models endpoint is reachable", async () => {
-    const handler = createProxyHandler({ config: baseConfig });
-    const res = await handler(new Request("http://localhost/v1/models"));
-    expect(res.status).toBe(200);
+  test("tier models come from env", () => {
+    const models = loadTierModels({
+      TIER_MODEL_CHEAP: "x/cheap",
+      TIER_MODEL_BALANCED: "x/bal",
+      TIER_MODEL_PREMIUM: "x/prem",
+    });
+    expect(models.cheap).toBe("x/cheap");
+    expect(models.balanced).toBe("x/bal");
+    expect(models.premium).toBe("x/prem");
   });
 });

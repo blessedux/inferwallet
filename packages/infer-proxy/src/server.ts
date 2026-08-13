@@ -1,4 +1,10 @@
-import { createStubBackend, type CompletionBackend } from "./backend.js";
+import {
+  createOpenRouterBackend,
+  createStubBackend,
+  loadTierModels,
+  type StreamBackend,
+  type TierModelMap,
+} from "./backend.js";
 import {
   createAcceptAllVerifier,
   createHorizonVerifier,
@@ -14,10 +20,11 @@ import type {
 export interface SzxProxyConfig {
   port: number;
   companionOrigin: string;
-  /** When true, skip Horizon and accept Companion-reported settlements. */
   skipChainVerify: boolean;
-  /** How long completions wait for Companion Pay-to-Sink (ms). */
   settlementTimeoutMs: number;
+  openRouterApiKey?: string;
+  openRouterBaseUrl: string;
+  tierModels: TierModelMap;
   szx?: {
     code: string;
     issuer: string;
@@ -29,7 +36,7 @@ export interface SzxProxyConfig {
 
 export interface ProxyDeps {
   store?: RequestStore;
-  backend?: CompletionBackend;
+  backend?: StreamBackend;
   verifier?: SettlementVerifier;
   config: SzxProxyConfig;
 }
@@ -40,10 +47,30 @@ function corsHeaders(origin: string | null, allowed: string): HeadersInit {
   return {
     "Access-Control-Allow-Origin": allow,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Infer-Tier, X-Infer-Request-Id",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-Infer-Tier, X-Infer-Request-Id",
     "Access-Control-Expose-Headers":
       "X-Infer-Request-Id, X-Infer-Payment-Required",
   };
+}
+
+function withCors(
+  res: Response,
+  origin: string | null,
+  allowed: string,
+  extra?: HeadersInit,
+): Response {
+  const headers = new Headers(res.headers);
+  const cors = corsHeaders(origin, allowed);
+  for (const [k, v] of Object.entries(cors)) {
+    headers.set(k, v);
+  }
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      headers.set(k, String(v));
+    }
+  }
+  return new Response(res.body, { status: res.status, headers });
 }
 
 function json(
@@ -53,20 +80,25 @@ function json(
   allowed: string,
   extra?: HeadersInit,
 ): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...corsHeaders(origin, allowed),
-      ...extra,
-    },
-  });
+  return withCors(
+    Response.json(data, { status }),
+    origin,
+    allowed,
+    extra,
+  );
 }
 
 export function createProxyHandler(deps: ProxyDeps) {
   const store = deps.store ?? new RequestStore();
-  const backend = deps.backend ?? createStubBackend();
   const config = deps.config;
+  const backend =
+    deps.backend ??
+    (config.openRouterApiKey
+      ? createOpenRouterBackend({
+          apiKey: config.openRouterApiKey,
+          baseUrl: config.openRouterBaseUrl,
+        })
+      : createStubBackend());
   const verifier =
     deps.verifier ??
     (config.skipChainVerify || !config.szx
@@ -92,7 +124,11 @@ export function createProxyHandler(deps: ProxyDeps) {
 
     if (url.pathname === "/health") {
       return json(
-        { ok: true, service: "infer-proxy" },
+        {
+          ok: true,
+          service: "infer-proxy",
+          provider: config.openRouterApiKey ? "openrouter" : "stub",
+        },
         200,
         origin,
         config.companionOrigin,
@@ -171,19 +207,12 @@ export function createProxyHandler(deps: ProxyDeps) {
       return json(
         {
           object: "list",
-          data: [
-            { id: "inferwallet/cheap", object: "model", owned_by: "inferwallet" },
-            {
-              id: "inferwallet/balanced",
-              object: "model",
-              owned_by: "inferwallet",
-            },
-            {
-              id: "inferwallet/premium",
-              object: "model",
-              owned_by: "inferwallet",
-            },
-          ],
+          data: (Object.keys(config.tierModels) as TierId[]).map((id) => ({
+            id: `inferwallet/${id}`,
+            object: "model",
+            owned_by: "inferwallet",
+            root: config.tierModels[id],
+          })),
         },
         200,
         origin,
@@ -237,8 +266,24 @@ export function createProxyHandler(deps: ProxyDeps) {
         );
       }
 
+      const stream = Boolean(payload.stream);
       const settlementHeader = req.headers.get("X-Infer-Request-Id");
+
+      // Retry path after provider failure (already settled — no new charge)
       if (settlementHeader) {
+        const retryable = store.get(settlementHeader);
+        if (retryable?.status === "settled_retryable") {
+          return fulfill(
+            store,
+            backend,
+            config,
+            retryable.id,
+            retryable.tier,
+            retryable.payload,
+            stream,
+            origin,
+          );
+        }
         const settled = store.takeSettled(settlementHeader);
         if (!settled) {
           return json(
@@ -253,12 +298,16 @@ export function createProxyHandler(deps: ProxyDeps) {
             config.companionOrigin,
           );
         }
-        const model = tierConfig(settled.tier).model;
-        const completion = await backend.complete(settled.payload, {
-          requestId: settled.id,
-          model,
-        });
-        return json(completion, 200, origin, config.companionOrigin);
+        return fulfill(
+          store,
+          backend,
+          config,
+          settled.id,
+          settled.tier,
+          settled.payload,
+          stream,
+          origin,
+        );
       }
 
       const tier = parseTierFromModel(
@@ -267,21 +316,21 @@ export function createProxyHandler(deps: ProxyDeps) {
       );
       const pending = store.create(payload, tier);
 
-      // Hold the Cursor request open until Companion settles (or timeout).
       try {
         const settled = await store.waitUntilSettled(
           pending.id,
           config.settlementTimeoutMs,
         );
-        store.takeSettled(settled.id);
-        const model = tierConfig(settled.tier).model;
-        const completion = await backend.complete(settled.payload, {
-          requestId: settled.id,
-          model,
-        });
-        return json(completion, 200, origin, config.companionOrigin, {
-          "X-Infer-Request-Id": settled.id,
-        });
+        return fulfill(
+          store,
+          backend,
+          config,
+          settled.id,
+          settled.tier,
+          settled.payload,
+          stream,
+          origin,
+        );
       } catch {
         return json(
           {
@@ -318,6 +367,33 @@ export function createProxyHandler(deps: ProxyDeps) {
   };
 }
 
+async function fulfill(
+  store: RequestStore,
+  backend: StreamBackend,
+  config: SzxProxyConfig,
+  requestId: string,
+  tier: TierId,
+  payload: ChatCompletionRequest,
+  stream: boolean,
+  origin: string | null,
+): Promise<Response> {
+  const model = config.tierModels[tier] ?? tierConfig(tier).model;
+  const res = await backend.respond(payload, { requestId, model, stream });
+
+  if (!res.ok) {
+    // Keep settlement for retry — do not create a new Pay-to-Sink
+    store.markRetryable(requestId);
+    return withCors(res, origin, config.companionOrigin, {
+      "X-Infer-Request-Id": requestId,
+    });
+  }
+
+  store.consume(requestId);
+  return withCors(res, origin, config.companionOrigin, {
+    "X-Infer-Request-Id": requestId,
+  });
+}
+
 function parseTierFromModel(
   model: string | undefined,
   headerTier: string | null,
@@ -337,6 +413,9 @@ export function loadConfigFromEnv(
     skipChainVerify:
       env.SKIP_CHAIN_VERIFY === "1" || env.SKIP_CHAIN_VERIFY === "true",
     settlementTimeoutMs: Number(env.SETTLEMENT_TIMEOUT_MS ?? 120_000),
+    openRouterApiKey: env.OPENROUTER_API_KEY,
+    openRouterBaseUrl: env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
+    tierModels: loadTierModels(env),
     szx:
       env.SZX_ISSUER && env.SZX_SINK
         ? {

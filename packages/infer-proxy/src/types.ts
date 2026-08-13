@@ -31,7 +31,12 @@ export interface ChatCompletionResponse {
 
 export type TierId = "cheap" | "balanced" | "premium";
 
-export type PendingRequestStatus = "awaiting_payment" | "settled" | "expired";
+export type PendingRequestStatus =
+  | "awaiting_payment"
+  | "settled"
+  | "expired"
+  /** Settled but provider failed — retry without new payment. */
+  | "settled_retryable";
 
 export interface PendingRequest {
   id: string;
