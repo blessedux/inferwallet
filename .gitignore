@@ -1,4 +1,5 @@
 .exponential/
+.secrets/
 node_modules/
 dist/
 *.tsbuildinfo
