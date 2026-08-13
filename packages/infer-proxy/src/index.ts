@@ -1,27 +1,20 @@
 /**
- * Infer Proxy — local OpenAI-compatible endpoint (placeholder).
- * Gates OpenRouter on verified SZX Pay-to-Sink settlement.
+ * Infer Proxy — local OpenAI-compatible endpoint.
+ * Gates completions on verified SZX Pay-to-Sink settlement.
  */
 
-import { requestBinding } from "@inferwallet/sdk";
+import { createProxyHandler, loadConfigFromEnv } from "./server.js";
 
-const PORT = Number(process.env.INFER_PROXY_PORT ?? 8787);
+const config = loadConfigFromEnv();
+const handler = createProxyHandler({ config });
 
 const server = Bun.serve({
-  port: PORT,
-  fetch(req) {
-    const url = new URL(req.url);
-    if (url.pathname === "/health") {
-      return Response.json({
-        ok: true,
-        service: "infer-proxy",
-        bindingExample: requestBinding("health"),
-      });
-    }
-    return new Response("Infer Proxy scaffold — settlement gate not yet wired", {
-      status: 501,
-    });
-  },
+  port: config.port,
+  fetch: handler,
 });
 
 console.log(`Infer Proxy listening on http://localhost:${server.port}`);
+console.log(`Companion origin: ${config.companionOrigin}`);
+console.log(
+  `Chain verify: ${config.skipChainVerify || !config.szx ? "skipped/demo" : "horizon"}`,
+);
