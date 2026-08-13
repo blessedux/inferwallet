@@ -3,7 +3,7 @@
  * Gates OpenRouter on verified SZX Pay-to-Sink settlement.
  */
 
-import { placeholder } from "@inferwallet/sdk";
+import { requestBinding } from "@inferwallet/sdk";
 
 const PORT = Number(process.env.INFER_PROXY_PORT ?? 8787);
 
@@ -15,7 +15,7 @@ const server = Bun.serve({
       return Response.json({
         ok: true,
         service: "infer-proxy",
-        sdk: placeholder(),
+        bindingExample: requestBinding("health"),
       });
     }
     return new Response("Infer Proxy scaffold — settlement gate not yet wired", {

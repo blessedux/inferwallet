@@ -1,10 +1,37 @@
 /**
- * @inferwallet/sdk — SDEX Quote + Pay-to-Sink helpers (placeholder).
- * Domain: see CONTEXT.md (SZX, SDEX Quote, Pay-to-Sink, Request Binding).
+ * @inferwallet/sdk — SDEX Quote + Pay-to-Sink build/verify.
+ * Domain: CONTEXT.md (SZX, SDEX Quote, Pay-to-Sink, Request Binding, Fixed USD Feel).
  */
 
-export const SDK_NAME = "@inferwallet/sdk" as const;
-
-export function placeholder(): string {
-  return SDK_NAME;
-}
+export { requestBinding, bindingMatches } from "./binding.js";
+export {
+  amountGte,
+  formatStroops,
+  midPrice,
+  szxForUsdFeel,
+  toStroops,
+} from "./amount.js";
+export { quoteSzxForUsdFeel, toAsset } from "./quote.js";
+export type { HorizonServer, OrderbookLike } from "./quote.js";
+export { buildPayToSink } from "./payment.js";
+export {
+  createHorizonReader,
+  verifyPayToSink,
+} from "./verify.js";
+export type {
+  HorizonPayment,
+  HorizonReader,
+  HorizonTransaction,
+} from "./verify.js";
+export type {
+  BuildPaymentInput,
+  BuiltPayment,
+  ClassicAssetRef,
+  NetworkPassphrase,
+  QuoteResult,
+  SettlementExpectation,
+  SzxConfig,
+  VerifyFail,
+  VerifyOk,
+  VerifyResult,
+} from "./types.js";
