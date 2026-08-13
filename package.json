@@ -4,7 +4,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun run --filter @inferwallet/sdk test",
+    "test": "bun run --filter @inferwallet/sdk --filter @inferwallet/infer-proxy test",
     "build": "bun run --filter '*' build",
     "dev:proxy": "bun run --filter @inferwallet/infer-proxy dev",
     "dev:companion": "bun run --filter @inferwallet/companion dev"
