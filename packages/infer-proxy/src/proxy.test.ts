@@ -11,6 +11,7 @@ const baseConfig = {
   settlementTimeoutMs: 200,
   openRouterBaseUrl: "https://openrouter.ai/api/v1",
   tierModels: loadTierModels({}),
+  guards: { dailyUsdCeiling: 50, killSwitchEnv: false },
 };
 
 async function postCompletions(
