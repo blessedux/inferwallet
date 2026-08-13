@@ -8,8 +8,10 @@ import {
 import {
   connectFreighter,
   fetchPending,
+  fetchPrepay,
   fetchQuote,
   freighterAvailable,
+  fundPrepay,
   payPending,
   type PendingFromProxy,
 } from "./stellar";
@@ -32,6 +34,12 @@ export function App() {
   const [hasFreighter, setHasFreighter] = useState<boolean | null>(null);
   const [pendingConnect, startConnect] = useTransition();
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [prepay, setPrepay] = useState<{
+    remainingUsd: number;
+    remainingSzx: string;
+  } | null>(null);
+  const [prepayUsd, setPrepayUsd] = useState("1.00");
+  const [funding, setFunding] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(TIER_STORAGE_KEY, tier);
@@ -68,7 +76,11 @@ export function App() {
     const tick = async () => {
       try {
         const list = await fetchPending();
-        if (alive) setPending(list);
+        const bal = await fetchPrepay();
+        if (alive) {
+          setPending(list);
+          setPrepay(bal);
+        }
       } catch {
         /* proxy may be down */
       }
@@ -93,6 +105,31 @@ export function App() {
         setError(e instanceof Error ? e.message : String(e));
       }
     });
+  }
+
+  async function onFundPrepay() {
+    if (!address) {
+      setError("Connect Freighter first");
+      return;
+    }
+    const usd = Number(prepayUsd);
+    if (!(usd > 0)) {
+      setError("Enter a positive Prepay USD amount");
+      return;
+    }
+    setFunding(true);
+    setError("");
+    setStatus("Funding Prepay — await Freighter…");
+    try {
+      const { hash, szxAmount } = await fundPrepay(address, usd);
+      setStatus(`Prepay funded ${szxAmount} SZX ($${usd}) — ${hash.slice(0, 8)}…`);
+      setPrepay(await fetchPrepay());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setStatus("");
+    } finally {
+      setFunding(false);
+    }
   }
 
   async function onPay(item: PendingFromProxy) {
@@ -177,6 +214,41 @@ export function App() {
             " · quoting…"
           )}
         </p>
+      </section>
+
+      <section className="block">
+        <h2>Prepay</h2>
+        <p className="meta">
+          Pay a larger SZX amount once; Cursor requests debit the balance without
+          Freighter until it runs out.
+        </p>
+        <p className="quote">
+          Balance:{" "}
+          <strong>
+            {prepay
+              ? `$${prepay.remainingUsd.toFixed(2)} · ${prepay.remainingSzx} SZX`
+              : "$0.00"}
+          </strong>
+        </p>
+        <div className="prepay-row">
+          <label>
+            USD
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={prepayUsd}
+              onChange={(e) => setPrepayUsd(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={!address || funding}
+            onClick={() => void onFundPrepay()}
+          >
+            {funding ? "Funding…" : "Fund Prepay"}
+          </button>
+        </div>
       </section>
 
       <section className="block">

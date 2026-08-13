@@ -72,6 +72,62 @@ export async function fetchPending(): Promise<PendingFromProxy[]> {
   return body.pending ?? [];
 }
 
+export async function fetchPrepay(): Promise<{
+  remainingUsd: number;
+  remainingSzx: string;
+} | null> {
+  const res = await fetch(`${PROXY_URL}/v1/prepay`);
+  if (!res.ok) throw new Error(`prepay ${res.status}`);
+  const body = (await res.json()) as {
+    prepay: { remainingUsd: number; remainingSzx: string } | null;
+  };
+  return body.prepay;
+}
+
+/** Fund session Prepay with a larger Pay-to-Sink (USD feel units). */
+export async function fundPrepay(
+  publicKey: string,
+  usd: number,
+): Promise<{ hash: string; szxAmount: string }> {
+  const quote = await quoteSzxForUsdFeel(SZX_CONFIG as SzxConfig, usd);
+  const requestId = `prepay:${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const server = new Horizon.Server(HORIZON_URL);
+  const account = await server.loadAccount(publicKey);
+  const built = buildPayToSink(SZX_CONFIG as SzxConfig, {
+    sourcePublicKey: publicKey,
+    sequence: account.sequenceNumber(),
+    szxAmount: quote.szxAmount,
+    requestId,
+  });
+  const signed = await signTransaction(built.xdr, {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: publicKey,
+  });
+  if (signed.error || !signed.signedTxXdr) {
+    throw new Error(signed.error ?? "Freighter did not return signed XDR");
+  }
+  const tx = TransactionBuilder.fromXDR(
+    signed.signedTxXdr,
+    NETWORK_PASSPHRASE || Networks.TESTNET,
+  );
+  const result = await server.submitTransaction(tx);
+  const settle = await fetch(`${PROXY_URL}/v1/prepay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transactionHash: result.hash,
+      usd,
+      szxAmount: quote.szxAmount,
+      publicKey,
+      requestId,
+    }),
+  });
+  if (!settle.ok) {
+    throw new Error(`prepay fund failed: ${settle.status} ${await settle.text()}`);
+  }
+  return { hash: result.hash, szxAmount: quote.szxAmount };
+}
+
 export async function payPending(
   pending: PendingFromProxy,
   publicKey: string,
