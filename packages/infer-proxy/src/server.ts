@@ -5,6 +5,7 @@ import {
   type StreamBackend,
   type TierModelMap,
 } from "./backend.js";
+import { loadGuardConfig, SpendGuards, type GuardConfig } from "./guards.js";
 import { PrepayLedger } from "./prepay.js";
 import {
   createAcceptAllVerifier,
@@ -26,6 +27,7 @@ export interface SzxProxyConfig {
   openRouterApiKey?: string;
   openRouterBaseUrl: string;
   tierModels: TierModelMap;
+  guards: GuardConfig;
   szx?: {
     code: string;
     issuer: string;
@@ -38,6 +40,7 @@ export interface SzxProxyConfig {
 export interface ProxyDeps {
   store?: RequestStore;
   prepay?: PrepayLedger;
+  guards?: SpendGuards;
   backend?: StreamBackend;
   verifier?: SettlementVerifier;
   config: SzxProxyConfig;
@@ -91,9 +94,10 @@ function json(
 }
 
 export function createProxyHandler(deps: ProxyDeps) {
+  const config = deps.config;
   const store = deps.store ?? new RequestStore();
   const prepay = deps.prepay ?? new PrepayLedger();
-  const config = deps.config;
+  const guards = deps.guards ?? new SpendGuards(config.guards);
   const backend =
     deps.backend ??
     (config.openRouterApiKey
@@ -131,6 +135,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           ok: true,
           service: "infer-proxy",
           provider: config.openRouterApiKey ? "openrouter" : "stub",
+          guards: guards.snapshot(),
         },
         200,
         origin,
@@ -352,6 +357,7 @@ export function createProxyHandler(deps: ProxyDeps) {
             store,
             backend,
             config,
+            guards,
             retryable.id,
             retryable.tier,
             retryable.payload,
@@ -377,6 +383,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           store,
           backend,
           config,
+          guards,
           settled.id,
           settled.tier,
           settled.payload,
@@ -398,6 +405,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           store,
           backend,
           config,
+          guards,
           requestId,
           tier,
           payload,
@@ -417,6 +425,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           store,
           backend,
           config,
+          guards,
           settled.id,
           settled.tier,
           settled.payload,
@@ -463,23 +472,43 @@ async function fulfill(
   store: RequestStore,
   backend: StreamBackend,
   config: SzxProxyConfig,
+  guards: SpendGuards,
   requestId: string,
   tier: TierId,
   payload: ChatCompletionRequest,
   stream: boolean,
   origin: string | null,
 ): Promise<Response> {
+  const feel = tierConfig(tier).usdFeel;
+  const gate = guards.check(feel);
+  if (!gate.ok) {
+    return json(
+      {
+        error: {
+          message: gate.message,
+          type: "spend_guard",
+          code: gate.reason,
+          request_id: requestId,
+        },
+      },
+      429,
+      origin,
+      config.companionOrigin,
+      { "X-Infer-Request-Id": requestId },
+    );
+  }
+
   const model = config.tierModels[tier] ?? tierConfig(tier).model;
   const res = await backend.respond(payload, { requestId, model, stream });
 
   if (!res.ok) {
-    // Keep settlement for retry — do not create a new Pay-to-Sink
     store.markRetryable(requestId);
     return withCors(res, origin, config.companionOrigin, {
       "X-Infer-Request-Id": requestId,
     });
   }
 
+  guards.record(feel);
   store.consume(requestId);
   return withCors(res, origin, config.companionOrigin, {
     "X-Infer-Request-Id": requestId,
@@ -508,6 +537,7 @@ export function loadConfigFromEnv(
     openRouterApiKey: env.OPENROUTER_API_KEY,
     openRouterBaseUrl: env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1",
     tierModels: loadTierModels(env),
+    guards: loadGuardConfig(env),
     szx:
       env.SZX_ISSUER && env.SZX_SINK
         ? {
