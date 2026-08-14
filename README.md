@@ -36,4 +36,11 @@ bun run dev:companion  # http://localhost:5173 (InferWallet app)
 
 Full walkthrough: [docs/setup.md](./docs/setup.md). Requires USDC + SZX trustlines in Freighter for swap.
 
+## Production Deployment
+
+- **Companion (Static Site):** Auto-deploys to Vercel on push to `main`
+- **Proxy (API Server):** Deploy to Railway — see [docs/railway-deployment.md](docs/railway-deployment.md)
+
+After deploying the proxy, set `VITE_PROXY_URL` in Vercel to your Railway URL.
+
 Product tracking: Exponential **SZX** (`szx`) under Sozu Capital.

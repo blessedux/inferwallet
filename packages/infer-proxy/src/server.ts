@@ -560,7 +560,7 @@ export function loadConfigFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): SzxProxyConfig {
   return {
-    port: Number(env.INFER_PROXY_PORT ?? 8787),
+    port: Number(env.PORT ?? env.INFER_PROXY_PORT ?? 8787),
     companionOrigin: env.COMPANION_ORIGIN ?? "http://localhost:5173",
     skipChainVerify:
       env.SKIP_CHAIN_VERIFY === "1" || env.SKIP_CHAIN_VERIFY === "true",
