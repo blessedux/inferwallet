@@ -50,12 +50,16 @@ export function buildSwapUsdcToSzx(
   
   const usdcAmount = String(input.usdcAmount);
   
-  // Default slippage: 1% buffer on minSzxOut
-  const minSzxOut = input.minSzxOut ?? (() => {
-    const stroops = toStroops(usdcAmount);
+  // Default slippage: accept 1% less SZX than quoted (destMin = 99% of minSzxOut)
+  let minSzxOut: string;
+  if (input.minSzxOut) {
+    const stroops = toStroops(input.minSzxOut);
     const buffered = (stroops * 99n) / 100n;
-    return formatStroops(buffered);
-  })();
+    minSzxOut = formatStroops(buffered);
+  } else {
+    // If no minSzxOut provided, we can't calculate slippage - caller should provide it
+    throw new Error("minSzxOut is required for swap (provide quoted SZX amount)");
+  }
 
   const now = Math.floor(Date.now() / 1000);
   const timebounds = input.timebounds ?? {
