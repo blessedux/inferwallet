@@ -9,6 +9,8 @@
     "dev:proxy": "bun run --filter @inferwallet/infer-proxy dev",
     "dev:companion": "bun run --filter @inferwallet/companion dev",
     "issue:szx": "bun run scripts/issue-szx-testnet.ts",
+    "fix:sink-trustline": "bun run scripts/fix-sink-trustline.ts",
+    "fund:szx": "bun run scripts/fund-freighter-szx.ts",
     "seed:sdex": "bun run scripts/seed-sdex-book.ts"
   },
   "devDependencies": {

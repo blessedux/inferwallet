@@ -18,6 +18,7 @@ import type {
   SettlementBody,
   TierId,
 } from "./types.js";
+import { UsageLedger } from "./usage.js";
 
 export interface SzxProxyConfig {
   port: number;
@@ -43,6 +44,7 @@ export interface ProxyDeps {
   guards?: SpendGuards;
   backend?: StreamBackend;
   verifier?: SettlementVerifier;
+  usage?: UsageLedger;
   config: SzxProxyConfig;
 }
 
@@ -98,6 +100,7 @@ export function createProxyHandler(deps: ProxyDeps) {
   const store = deps.store ?? new RequestStore();
   const prepay = deps.prepay ?? new PrepayLedger();
   const guards = deps.guards ?? new SpendGuards(config.guards);
+  const usage = deps.usage ?? new UsageLedger();
   const backend =
     deps.backend ??
     (config.openRouterApiKey
@@ -218,6 +221,15 @@ export function createProxyHandler(deps: ProxyDeps) {
     if (url.pathname === "/v1/pending" && req.method === "GET") {
       return json(
         { pending: store.listPending() },
+        200,
+        origin,
+        config.companionOrigin,
+      );
+    }
+
+    if (url.pathname === "/v1/usage" && req.method === "GET") {
+      return json(
+        { usage: usage.list() },
         200,
         origin,
         config.companionOrigin,
@@ -358,6 +370,7 @@ export function createProxyHandler(deps: ProxyDeps) {
             backend,
             config,
             guards,
+            usage,
             retryable.id,
             retryable.tier,
             retryable.payload,
@@ -384,6 +397,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           backend,
           config,
           guards,
+          usage,
           settled.id,
           settled.tier,
           settled.payload,
@@ -406,6 +420,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           backend,
           config,
           guards,
+          usage,
           requestId,
           tier,
           payload,
@@ -426,6 +441,7 @@ export function createProxyHandler(deps: ProxyDeps) {
           backend,
           config,
           guards,
+          usage,
           settled.id,
           settled.tier,
           settled.payload,
@@ -473,6 +489,7 @@ async function fulfill(
   backend: StreamBackend,
   config: SzxProxyConfig,
   guards: SpendGuards,
+  usage: UsageLedger,
   requestId: string,
   tier: TierId,
   payload: ChatCompletionRequest,
@@ -509,6 +526,20 @@ async function fulfill(
   }
 
   guards.record(feel);
+  
+  // Record usage (tokens may be 0 for stream or unavailable responses)
+  const req = store.get(requestId);
+  usage.record({
+    id: requestId,
+    at: Date.now(),
+    tier,
+    model,
+    usdFeel: feel,
+    szxAmount: req?.szxAmount ?? "0",
+    promptTokens: 0,
+    completionTokens: 0,
+  });
+  
   store.consume(requestId);
   return withCors(res, origin, config.companionOrigin, {
     "X-Infer-Request-Id": requestId,

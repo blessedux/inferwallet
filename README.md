@@ -1,6 +1,6 @@
 # SZX / InferWallet
 
-Permissionless AI inference spend on Stellar. Hold **SZX**, pay via Freighter in a local **Companion**, get Cursor completions through a local **Infer Proxy**.
+**InferWallet** turns the Stellar classic asset **SZX** into permissionless AI inference spend: hold SZX in Freighter, point Cursor at a local proxy, and burn SZX to call OpenRouter models — no product accounts, API keys, or credit cards.
 
 Domain language (SZX, InferWallet, Infer Proxy, Companion, Treasury Absorb, Pass-Through, Pay-to-Sink, Request Binding, Prepay, Tier, Fixed USD Feel, SDEX Quote) lives in [CONTEXT.md](./CONTEXT.md). Grant narrative: [docs/grant-proposal-szx-inferwallet.md](./docs/grant-proposal-szx-inferwallet.md).
 
@@ -9,8 +9,8 @@ Domain language (SZX, InferWallet, Infer Proxy, Companion, Treasury Absorb, Pass
 | Package | Role |
 | --- | --- |
 | `packages/infer-proxy` | Local OpenAI-compatible Node process Cursor points at |
-| `packages/companion` | Localhost UI for Freighter + tier + payment approval |
-| `packages/sdk` | Thin helpers: SDEX Quote, Pay-to-Sink build/verify |
+| `packages/companion` | InferWallet web app for Freighter + swap + burn |
+| `packages/sdk` | SDEX quote, Pay-to-Sink builder, swap builder, chain verify |
 
 No Soroban `/contracts` package in V1 — SZX is a classic Stellar asset.
 
@@ -31,9 +31,9 @@ bun run seed:sdex -- --with-bids
 bun install
 bun run typecheck
 bun run dev:proxy      # http://localhost:8787
-bun run dev:companion  # http://localhost:5173
+bun run dev:companion  # http://localhost:5173 (InferWallet app)
 ```
 
-Full walkthrough: [docs/setup.md](./docs/setup.md).
+Full walkthrough: [docs/setup.md](./docs/setup.md). Requires USDC + SZX trustlines in Freighter for swap.
 
 Product tracking: Exponential **SZX** (`szx`) under Sozu Capital.

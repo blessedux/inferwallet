@@ -4,8 +4,10 @@ import {
   amountGte,
   bindingMatches,
   buildPayToSink,
+  buildSwapUsdcToSzx,
   midPrice,
   quoteSzxForUsdFeel,
+  quoteSzxForUsdc,
   requestBinding,
   szxForUsdFeel,
   verifyPayToSink,
@@ -57,6 +59,18 @@ describe("quote math", () => {
     expect(q.szxAmount).toBe("0.1");
     expect(q.source).toBe("orderbook");
   });
+
+  test("quoteSzxForUsdc converts USDC amount to SZX", async () => {
+    const q = await quoteSzxForUsdc(config, 1.0, {
+      orderbook: {
+        bids: [{ price: "0.01", amount: "10000" }],
+        asks: [{ price: "0.01", amount: "10000" }],
+      },
+    });
+    expect(q.pricePerSzx).toBe("0.01");
+    expect(q.szxAmount).toBe("100");
+    expect(q.usdFeel).toBe(1.0);
+  });
 });
 
 describe("request binding", () => {
@@ -89,6 +103,31 @@ describe("buildPayToSink", () => {
     expect(built.binding).toBe(requestBinding("req_1"));
     expect(built.szxAmount).toBe("0.5");
     expect(built.sink).toBe(sink);
+  });
+});
+
+describe("buildSwapUsdcToSzx", () => {
+  test("builds pathPaymentStrictSend XDR", () => {
+    const built = buildSwapUsdcToSzx(config, {
+      sourcePublicKey: source,
+      sequence: "1",
+      usdcAmount: "1.0",
+      minSzxOut: "95",
+      timebounds: { minTime: 1, maxTime: 2 },
+    });
+    expect(built.xdr.length).toBeGreaterThan(40);
+    expect(built.usdcAmount).toBe("1.0");
+    expect(built.minSzxOut).toBe("95");
+  });
+
+  test("defaults minSzxOut with 1% slippage buffer", () => {
+    const built = buildSwapUsdcToSzx(config, {
+      sourcePublicKey: source,
+      sequence: "1",
+      usdcAmount: "100",
+      timebounds: { minTime: 1, maxTime: 2 },
+    });
+    expect(built.minSzxOut).toBe("99");
   });
 });
 

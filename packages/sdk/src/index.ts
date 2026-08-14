@@ -11,9 +11,11 @@ export {
   szxForUsdFeel,
   toStroops,
 } from "./amount.js";
-export { quoteSzxForUsdFeel, toAsset } from "./quote.js";
+export { quoteSzxForUsdFeel, quoteSzxForUsdc, toAsset } from "./quote.js";
 export type { HorizonServer, OrderbookLike } from "./quote.js";
 export { buildPayToSink } from "./payment.js";
+export { buildSwapUsdcToSzx } from "./swap.js";
+export type { BuildSwapInput, BuiltSwap } from "./swap.js";
 export {
   createHorizonReader,
   verifyPayToSink,

@@ -1,4 +1,4 @@
-# Setup — zero to one settled completion (testnet)
+# Setup — local InferWallet testnet loop
 
 Domain terms match [`CONTEXT.md`](../CONTEXT.md): **SZX**, **Infer Proxy**, **Companion**, **Pay-to-Sink**, **Request Binding**, **Tier**, **Fixed USD Feel**, **SDEX Quote**, **Treasury Absorb**, **Prepay**.
 
@@ -9,57 +9,58 @@ Domain terms match [`CONTEXT.md`](../CONTEXT.md): **SZX**, **Infer Proxy**, **Co
 - Cursor (or any OpenAI-compatible client)
 - Optional: OpenRouter API key (operator) for real completions; without it the proxy uses a stub backend
 
-## 1. Install
+## 1. Issue testnet SZX + seed SDEX
 
 ```bash
-git clone https://github.com/blessedux/inferwallet.git
-cd inferwallet
 bun install
 cp .env.example .env
+# Fill OPENROUTER_API_KEY (operator), leave SKIP_CHAIN_VERIFY=1 for local demos
+
+bun run issue:szx   # once — generates issuer/distributor/sink → .secrets/
+bun run seed:sdex   # 15M SZX asks @ $0.01 USDC
 ```
 
-Fill `.env`:
+After seeding, vault `.secrets/szx-testnet.json` and delete the local copy. See [testnet-szx-runbook.md](./testnet-szx-runbook.md) for two-sided book (requires 150k classic USDC on distributor).
 
-- `OPENROUTER_API_KEY` — operator key (Treasury Absorb)
-- `SKIP_CHAIN_VERIFY=0` once you want Horizon verification (use `1` for dry demos)
-- Public SZX ids are already in `.env.example` / [`testnet-assets.json`](./testnet-assets.json)
-
-Vault issuer/distributor/sink secrets separately (see [testnet-szx-runbook.md](./testnet-szx-runbook.md)). Never commit `.secrets/`.
-
-## 2. SZX in Freighter
-
-1. Freighter → **Testnet**
-2. Add asset: code `SZX`, issuer from `docs/testnet-assets.json` → `asset.issuer`
-3. Acquire SZX: buy on SDEX against classic USDC, or receive from the distributor
-
-SDEX book: 15M SZX asks @ **$0.01** USDC are seeded. For a two-sided liquid book, fund the distributor with ~150k classic testnet USDC and run `bun run seed:sdex -- --with-bids`.
-
-## 3. Run Infer Proxy + Companion
+## 2. Run proxy + InferWallet app
 
 ```bash
-bun run dev:proxy       # http://127.0.0.1:8787
-bun run dev:companion   # http://localhost:5173
+bun run dev:proxy      # terminal 1 — OpenAI-compat local proxy
+bun run dev:companion  # terminal 2 — InferWallet web UI
 ```
 
-## 4. Point Cursor at the Infer Proxy
+Open http://localhost:5173. Connect Freighter (Testnet), swap USDC → SZX, copy the base URL, load credits, and configure Cursor.
 
-Cursor Settings → Models / OpenAI compatible:
+## 3. Freighter setup (Testnet)
 
-| Field | Value |
-| --- | --- |
-| Base URL | `http://127.0.0.1:8787/v1` |
-| API key | any dummy string (e.g. `sk-inferwallet`) |
-| Model | `inferwallet/balanced` (or `cheap` / `premium`) |
+**Required trustlines:**  
+- **USDC** — `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5` (for swap)  
+- **SZX** — see `asset.issuer` in [`testnet-assets.json`](./testnet-assets.json) (for holding/burning)
 
-## 5. One settled completion
+1. Freighter → Testnet
+2. **Add asset USDC** with the issuer above
+3. **Add asset SZX** with the issuer from `testnet-assets.json`
+4. Fund USDC from a testnet faucet or transfer from another testnet wallet
+5. Swap USDC → SZX in the InferWallet UI
 
-1. Open Companion → **Connect Freighter**
-2. Pick a **Tier** (Cheap ~$0.01 / Balanced ~$0.03 / Premium ~$0.10) — UI shows live SZX from the **SDEX Quote**
-3. In Cursor, send a chat that hits the proxy
-4. Companion shows a **Pending Pay-to-Sink** → **Pay with Freighter**
-5. After the payment confirms, the proxy streams the completion (OpenRouter if keyed, else stub)
+## 4. Cursor → local proxy
 
-Optional: **Fund Prepay** in Companion to debit subsequent requests without Freighter until the balance is exhausted.
+InferWallet app shows the base URL to copy. In Cursor:
+
+1. **Settings** → **Models** → **Override OpenAI Base URL**
+2. Paste `http://127.0.0.1:8787/v1`
+3. **OpenAI API Key** → any dummy key (e.g. `sk-test`)
+4. Select a model tier (Cheap/Balanced/Premium) in the InferWallet app
+5. Load credits (burn SZX → prepay balance) or approve per-request
+
+## 5. Verify
+
+Ask Cursor for a completion. The proxy gates on SZX payment:
+
+- **Prepay balance** — instant fulfillment while credits remain
+- **No balance** — pending approval in InferWallet UI, then settlement on-chain
+
+Check the Usage section in InferWallet to see session history and token counts.
 
 ## Tiers
 
@@ -68,6 +69,16 @@ Optional: **Fund Prepay** in Companion to debit subsequent requests without Frei
 | Cheap | $0.01 | `TIER_MODEL_CHEAP` |
 | Balanced | $0.03 | `TIER_MODEL_BALANCED` |
 | Premium | $0.10 | `TIER_MODEL_PREMIUM` |
+
+## Optional: fund wallet from distributor
+
+```bash
+npx tsx scripts/fund-freighter-szx.ts G... 1000
+```
+
+Sends 1000 SZX (~$10 at testnet 0.01/SZX) to the wallet. Requires SZX trustline already set up. For USDC, use a testnet faucet or transfer from another wallet.
+
+Without USDC / SZX balance or trustlines, swap and burn operations fail with Horizon `op_underfunded` or `op_no_trust`.
 
 ## Operator references
 

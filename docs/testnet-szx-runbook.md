@@ -39,7 +39,7 @@ This will:
 
 1. Generate issuer / distributor / sink keypairs → `.secrets/szx-testnet.json`
 2. Friendbot-fund all three
-3. Open distributor trustline + pay **100B SZX** from issuer → distributor
+3. Open distributor **and sink** SZX trustlines + pay **100B SZX** from issuer → distributor
 4. Write public config → `docs/testnet-assets.json`
 
 **Vault the secrets file immediately**, then delete the local copy.
@@ -49,6 +49,13 @@ This will:
 1. Freighter → Testnet
 2. Add asset: code `SZX`, issuer = `asset.issuer` from `testnet-assets.json`
 3. Receive SZX from distributor (payment) or buy on SDEX once the book is live
+
+```bash
+# After Freighter has the SZX trustline:
+npx tsx scripts/fund-freighter-szx.ts G... 1000
+```
+
+Without SZX balance, Pay-to-Sink / Fund Prepay fails with Horizon `op_underfunded` (shown as `400 Bad Request`).
 
 ## Seed the book (liquid from day one)
 

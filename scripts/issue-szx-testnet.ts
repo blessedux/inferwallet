@@ -140,6 +140,7 @@ async function main() {
   const { secrets, created } = loadOrCreateSecrets();
   const issuerKp = Keypair.fromSecret(secrets.issuerSecret);
   const distKp = Keypair.fromSecret(secrets.distributorSecret);
+  const sinkKp = Keypair.fromSecret(secrets.sinkSecret);
   const szx = new Asset("SZX", issuerKp.publicKey());
   const server = new Horizon.Server(HORIZON_URL);
 
@@ -160,6 +161,7 @@ async function main() {
   ]);
 
   const distAccount = await loadAccount(server, secrets.distributorPublic);
+  const sinkAccount = await loadAccount(server, secrets.sinkPublic);
 
   const hasSzxTrust = distAccount.balances.some(
     (b) =>
@@ -178,6 +180,26 @@ async function main() {
         networkPassphrase: NETWORK,
       }).addOperation(Operation.changeTrust({ asset: szx })),
       [distKp],
+    );
+  }
+
+  // Sink must trust SZX or every Pay-to-Sink fails with op_no_trust (Horizon 400).
+  const sinkHasSzxTrust = sinkAccount.balances.some(
+    (b) =>
+      b.asset_type !== "native" &&
+      "asset_code" in b &&
+      b.asset_code === "SZX" &&
+      b.asset_issuer === secrets.issuerPublic,
+  );
+  if (!sinkHasSzxTrust) {
+    console.log("Creating sink SZX trustline…");
+    await submit(
+      server,
+      new TransactionBuilder(sinkAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK,
+      }).addOperation(Operation.changeTrust({ asset: szx })),
+      [sinkKp],
     );
   }
 

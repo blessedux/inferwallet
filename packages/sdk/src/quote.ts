@@ -59,3 +59,33 @@ async function fetchOrderbook(
     asks: result.asks.map((l) => ({ price: l.price, amount: l.amount })),
   };
 }
+
+/**
+ * Quote SZX output for a USDC input amount (swap path).
+ * Price is counter (quoteAsset/USDC) units per 1 SZX.
+ */
+export async function quoteSzxForUsdc(
+  config: SzxConfig,
+  usdcAmount: number,
+  opts?: { server?: HorizonServer; orderbook?: OrderbookLike },
+): Promise<QuoteResult> {
+  const book =
+    opts?.orderbook ??
+    (await fetchOrderbook(
+      opts?.server ?? new Horizon.Server(config.horizonUrl),
+      config.asset,
+      config.quoteAsset,
+    ));
+
+  const bestBid = book.bids[0]?.price;
+  const bestAsk = book.asks[0]?.price;
+  const pricePerSzx = midPrice(bestBid, bestAsk);
+  const szxAmount = szxForUsdFeel(usdcAmount, pricePerSzx);
+
+  return {
+    szxAmount,
+    pricePerSzx,
+    usdFeel: usdcAmount,
+    source: "orderbook",
+  };
+}
